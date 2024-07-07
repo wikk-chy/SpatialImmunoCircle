@@ -165,7 +165,7 @@ def find_density_centers(file_path, gene_name, top_n=1, n_clusters=3):
 
         return top_coords_list
 
-def analyze_samples(samples, input_dir, cell_types, colors, top_density_centers):
+def analyze_samples(samples, input_dir, cell_types, colors, top_density_centers, r1=50, r2=100, r3=150):
     for sample in samples:
         print(sample)    
         cell_df = pd.read_csv(f"{input_dir}/{sample}.csv", sep=",")
@@ -183,11 +183,11 @@ def analyze_samples(samples, input_dir, cell_types, colors, top_density_centers)
             y = centers[:, 0]
             spots = 5  # Example: 150 pixels in diameter
             spots_center = (spots / (96 / 72))**2  # Convert pixels to points
-            _outer_size_in_pixels = 150  # Example: 150 pixels in diameter
+            _outer_size_in_pixels = r3  # Example: 150 pixels in diameter
             _outer_area_in_points = (_outer_size_in_pixels / (96 / 72))**2  # Convert pixels to points
-            outer_size_in_pixels = 100  # Example: 150 pixels in diameter
+            outer_size_in_pixels = r2  # Example: 150 pixels in diameter
             outer_area_in_points = (outer_size_in_pixels / (96 / 72))**2  # Convert pixels to points
-            inner_size_in_pixels = 50  # Example: 100 pixels in diameter
+            inner_size_in_pixels = r1  # Example: 100 pixels in diameter
             inner_area_in_points = (inner_size_in_pixels / (96 / 72))**2  # Convert pixels to points
             ax.scatter(y, x, s=_outer_area_in_points, marker='o', edgecolors='white', facecolors='none', linewidths=4, linestyle='--')
             ax.scatter(y, x, s=outer_area_in_points, marker='o', edgecolors='white', facecolors='none', linewidths=3, linestyle='--')
