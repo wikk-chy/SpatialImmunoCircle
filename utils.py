@@ -164,13 +164,49 @@ def find_density_centers(file_path, gene_name, top_n=1, n_clusters=3):
         plt.show()
 
         return top_coords_list
+    
+def calculate_surrounding_cell_types(df, center_cells, radii=[50, 100, 150]):
+    """
+    Calculate the surrounding cell types within given radii for each center cell.
 
-def analyze_samples(samples, input_dir, cell_types, colors, top_density_centers, r1=50, r2=100, r3=150):
+    Parameters:
+    - df: DataFrame, contains the cell data with columns 'cell' and 'claster'
+    - center_cells: numpy.ndarray, array of shape (n, 2) where each row is [y, x] coordinates of center cells
+    - radii: list of int, the radii within which to search for surrounding cells
+
+    Returns:
+    - results: list of dictionaries, each containing the center cell info and surrounding cell type counts for each radius
+    """
+    results = []
+
+    # Extract coordinates from 'cell' column
+    df[['x', 'y']] = df['cell'].str.strip('()').str.split(',', expand=True).astype(float)
+
+    for center in center_cells:
+        center_y, center_x = center
+        df['distance'] = np.sqrt((df['x'] - center_x)**2 + (df['y'] - center_y)**2)
+        
+        cell_type_counts = {radius: {} for radius in radii}
+        for radius in radii:
+            surrounding_cells = df[(df['distance'] <= radius) & (df['distance'] > 0)]
+            counts = surrounding_cells.drop_duplicates(subset=['x', 'y'])['claster'].value_counts().to_dict()
+            cell_type_counts[radius] = counts
+        
+        results.append({
+            'center_y': center_y,
+            'center_x': center_x,
+            'surrounding_cell_types': cell_type_counts
+        })
+    
+    return results
+
+def analyze_samples(samples, input_dir, cell_types, colors, top_density_centers, radii=[50, 100, 150]):
+    all_results = []
+
     for sample in samples:
         print(sample)    
         cell_df = pd.read_csv(f"{input_dir}/{sample}.csv", sep=",")
         cell_df = cell_df.drop(columns=['niche'])
-        last_row = cell_df.iloc[-1]
         file = sample.split('-')[0]
         id = sample.split('-')[1]
         mask = imread(f"{input_dir}/{file}_{id}_mask.tif")
@@ -181,18 +217,32 @@ def analyze_samples(samples, input_dir, cell_types, colors, top_density_centers,
         for centers in top_density_centers:
             x = centers[:, 1]
             y = centers[:, 0]
-            spots = 5  # Example: 150 pixels in diameter
+            spots = 5
             spots_center = (spots / (96 / 72))**2  # Convert pixels to points
-            _outer_size_in_pixels = r3  # Example: 150 pixels in diameter
-            _outer_area_in_points = (_outer_size_in_pixels / (96 / 72))**2  # Convert pixels to points
-            outer_size_in_pixels = r2  # Example: 150 pixels in diameter
-            outer_area_in_points = (outer_size_in_pixels / (96 / 72))**2  # Convert pixels to points
-            inner_size_in_pixels = r1  # Example: 100 pixels in diameter
-            inner_area_in_points = (inner_size_in_pixels / (96 / 72))**2  # Convert pixels to points
-            ax.scatter(y, x, s=_outer_area_in_points, marker='o', edgecolors='white', facecolors='none', linewidths=4, linestyle='--')
-            ax.scatter(y, x, s=outer_area_in_points, marker='o', edgecolors='white', facecolors='none', linewidths=3, linestyle='--')
-            ax.scatter(y, x, s=inner_area_in_points, marker='o', edgecolors='white', facecolors='none', linewidths=2, linestyle='--')
+            for radius in radii:
+                size_in_pixels = radius
+                area_in_points = (size_in_pixels / (96 / 72))**2  # Convert pixels to points
+                ax.scatter(y, x, s=area_in_points, marker='o', edgecolors='white', facecolors='none', linewidths=4, linestyle='--')
             ax.scatter(y, x, s=spots_center, marker='o', edgecolors='white', facecolors='none', linewidths=5)
 
         output_path = f'./{sample}.pdf'
         draw_type_mask(ax, new_mask, colors=colors, labels=cell_types, output_path=output_path)
+
+        for centers in top_density_centers:
+            results = calculate_surrounding_cell_types(cell_df, centers, radii)
+            all_results.extend(results)
+    
+    csv_data = []
+    for result in all_results:
+        for radius, counts in result['surrounding_cell_types'].items():
+            row = {
+                'center_y': result['center_y'],
+                'center_x': result['center_x'],
+                'radius': radius
+            }
+            row.update(counts)
+            csv_data.append(row)
+
+    df_csv = pd.DataFrame(csv_data)
+    df_csv.to_csv('./surrounding_cell_types.csv', index=False)
+    print("Results saved to surrounding_cell_types.csv")
