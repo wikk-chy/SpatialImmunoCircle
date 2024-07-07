@@ -244,5 +244,5 @@ def analyze_samples(samples, input_dir, cell_types, colors, top_density_centers,
             csv_data.append(row)
 
     df_csv = pd.DataFrame(csv_data)
-    df_csv.to_csv('./surrounding_cell_types.csv', index=False)
-    print("Results saved to surrounding_cell_types.csv")
+    df_csv.to_csv(f'./{sample}_surrounding_cell_types.csv', index=False)
+    print(f"Results saved to {sample}-surrounding_cell_types.csv")
