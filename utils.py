@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+
 from scipy.stats import gaussian_kde
 from sklearn.cluster import KMeans
 from skimage.io import imread
@@ -7,34 +8,10 @@ from skimage.measure import regionprops
 from skimage.color import label2rgb
 from skimage.morphology import erosion
 from skimage.morphology import octagon
+from scipy.spatial.distance import cdist
+
 import matplotlib.pyplot as plt
 
-def calculate_surrounding_cell_types(df, center_cells, radius=50):
-    """
-    Calculate the surrounding cell types within a given radius for each center cell.
-
-    Parameters:
-    - df: DataFrame, contains the cell data with columns 'x', 'y', and 'claster'
-    - center_cells: numpy.ndarray, array of shape (n, 2) where each row is [y, x] coordinates of center cells
-    - radius: int, the radius within which to search for surrounding cells
-
-    Returns:
-    - results: list of dictionaries, each containing the center cell info and surrounding cell type counts
-    """
-    results = []
-
-    for center in center_cells:
-        center_y, center_x = center
-        df['distance'] = np.sqrt((df['x'] - center_x)**2 + (df['y'] - center_y)**2)
-        surrounding_cells = df[(df['distance'] <= radius) & (df['distance'] > 0)]
-        cell_type_counts = surrounding_cells.drop_duplicates(subset=['x', 'y'])['celltype'].value_counts().to_dict()
-        results.append({
-            'center_y': center_y,
-            'center_x': center_x,
-            'surrounding_cell_types': cell_type_counts
-        })
-    
-    return results
 
 def get_new_mask(mask, df, cell_types):
     ccs = regionprops(mask)
@@ -102,7 +79,7 @@ def draw_type_mask(ax, mask, colors, labels, output_path, bg_color="#000000", ba
     plt.savefig(output_path, format='pdf')
     plt.show()
 
-def find_density_centers(file_path, gene_name, top_n=1, n_clusters=3):
+def find_density_centers(file_path, gene_name, top_n=1, n_clusters=3, min_distance=120):
     """
     Finds the density centers for a given gene in the dataset within different regions.
 
@@ -111,9 +88,10 @@ def find_density_centers(file_path, gene_name, top_n=1, n_clusters=3):
     - gene_name: str, the gene to filter the data by
     - top_n: int, number of top density centers to return per region
     - n_clusters: int, number of clusters/regions to divide the data into
+    - min_distance: float, minimum distance between density centers
 
     Returns:
-    - top_coords_list: list of numpy.ndarray, coordinates of the top density centers for each region
+    - filtered_coords_list: list of numpy.ndarray, coordinates of the filtered density centers for each region
     """
     data = pd.read_csv(file_path)
     gene_data = data[data['gene'] == gene_name]
@@ -149,13 +127,23 @@ def find_density_centers(file_path, gene_name, top_n=1, n_clusters=3):
             density = kde(positions).reshape(xx.shape)
             density_flat = density.flatten()
             sorted_indices = np.argsort(density_flat)[::-1]  # Sort in descending order
-            top_indices = sorted_indices[:top_n]  # Top N density points
+            top_indices = sorted_indices[:top_n * 10]  # Take more top density points to filter later
             top_coords = np.vstack([positions[0][top_indices], positions[1][top_indices]]).T
-            top_coords_list.append(top_coords)
+            
+            # Filter top density centers by minimum distance
+            filtered_coords = []
+            for coord in top_coords:
+                if not filtered_coords or all(cdist([coord], filtered_coords) >= min_distance):
+                    filtered_coords.append(coord)
+                if len(filtered_coords) >= top_n:
+                    break
+            
+            filtered_coords = np.array(filtered_coords)
+            top_coords_list.append(filtered_coords)
 
             # Add KDE and top density centers for the current cluster to the global plot
             plt.imshow(np.rot90(density), cmap='Blues', extent=[xmin, xmax, ymin, ymax], alpha=0.5)
-            plt.scatter(top_coords[:, 0], top_coords[:, 1], s=50, label=f'Top Density Centers (Cluster {i})')
+            plt.scatter(filtered_coords[:, 0], filtered_coords[:, 1], s=50, label=f'Top Density Centers (Cluster {i})')
 
         plt.title(f'Kernel Density Estimation for {gene_name} Gene (All Clusters)')
         plt.xlabel('dim_2 (x-axis)')
@@ -164,10 +152,74 @@ def find_density_centers(file_path, gene_name, top_n=1, n_clusters=3):
         plt.show()
 
         return top_coords_list
+
+# def find_density_centers(file_path, gene_name, top_n=1, n_clusters=3):
+#     """
+#     Finds the density centers for a given gene in the dataset within different regions.
+
+#     Parameters:
+#     - file_path: str, path to the CSV file
+#     - gene_name: str, the gene to filter the data by
+#     - top_n: int, number of top density centers to return per region
+#     - n_clusters: int, number of clusters/regions to divide the data into
+
+#     Returns:
+#     - top_coords_list: list of numpy.ndarray, coordinates of the top density centers for each region
+#     """
+#     data = pd.read_csv(file_path)
+#     gene_data = data[data['gene'] == gene_name]
     
-def calculate_surrounding_cell_types(df, center_cells, radii=[50, 100, 150]):
+#     if gene_data.shape[0] < 2:
+#         print(f"The dataset for gene {gene_name} has insufficient data points for KDE.")
+#         return None
+#     else:
+#         x = gene_data['dim_2'].values
+#         y = gene_data['dim_1'].values
+#         xy = np.vstack([x, y]).T
+
+#         # Perform K-means clustering to divide the data into regions
+#         kmeans = KMeans(n_clusters=n_clusters, random_state=0).fit(xy)
+#         labels = kmeans.labels_
+
+#         top_coords_list = []
+
+#         plt.figure(figsize=(10, 6))
+
+#         for i in range(n_clusters):
+#             cluster_data = xy[labels == i]
+#             if cluster_data.shape[0] < 2:
+#                 print(f"Cluster {i} has insufficient data points for KDE.")
+#                 continue
+            
+#             # Perform KDE for the current cluster
+#             kde = gaussian_kde(cluster_data.T, bw_method='scott')
+#             xmin, xmax = cluster_data[:, 0].min() - 1, cluster_data[:, 0].max() + 1
+#             ymin, ymax = cluster_data[:, 1].min() - 1, cluster_data[:, 1].max() + 1
+#             xx, yy = np.mgrid[xmin:xmax:100j, ymin:ymax:100j]
+#             positions = np.vstack([xx.ravel(), yy.ravel()])
+#             density = kde(positions).reshape(xx.shape)
+#             density_flat = density.flatten()
+#             sorted_indices = np.argsort(density_flat)[::-1]  # Sort in descending order
+#             top_indices = sorted_indices[:top_n]  # Top N density points
+#             top_coords = np.vstack([positions[0][top_indices], positions[1][top_indices]]).T
+#             top_coords_list.append(top_coords)
+
+#             # Add KDE and top density centers for the current cluster to the global plot
+#             plt.imshow(np.rot90(density), cmap='Blues', extent=[xmin, xmax, ymin, ymax], alpha=0.5)
+#             plt.scatter(top_coords[:, 0], top_coords[:, 1], s=50, label=f'Top Density Centers (Cluster {i})')
+
+#         plt.title(f'Kernel Density Estimation for {gene_name} Gene (All Clusters)')
+#         plt.xlabel('dim_2 (x-axis)')
+#         plt.ylabel('dim_1 (y-axis)')
+#         plt.legend()
+#         plt.show()
+
+#         return top_coords_list
+    
+def calculate_surrounding_cell_types(df, center_cells, radii=[60, 120, 180]):
     """
-    Calculate the surrounding cell types within given radii for each center cell.
+    Calculate the surrounding cell types within given radii for each center cell and
+    return the difference in counts between each pair of consecutive radii.
 
     Parameters:
     - df: DataFrame, contains the cell data with columns 'cell' and 'claster'
@@ -178,19 +230,29 @@ def calculate_surrounding_cell_types(df, center_cells, radii=[50, 100, 150]):
     - results: list of dictionaries, each containing the center cell info and surrounding cell type counts for each radius
     """
     results = []
-
-    # Extract coordinates from 'cell' column
-    df[['x', 'y']] = df['cell'].str.strip('()').str.split(',', expand=True).astype(float)
+    df[['y', 'x']] = df['cell'].str.strip('()').str.split(',', expand=True).astype(float)
 
     for center in center_cells:
-        center_y, center_x = center
+        center_x, center_y = center
         df['distance'] = np.sqrt((df['x'] - center_x)**2 + (df['y'] - center_y)**2)
         
+        prev_counts = {}
         cell_type_counts = {radius: {} for radius in radii}
-        for radius in radii:
+        
+        for i, radius in enumerate(radii):
             surrounding_cells = df[(df['distance'] <= radius) & (df['distance'] > 0)]
-            counts = surrounding_cells.drop_duplicates(subset=['x', 'y'])['claster'].value_counts().to_dict()
-            cell_type_counts[radius] = counts
+            counts = surrounding_cells['claster'].value_counts().to_dict()
+            
+            if i == 0:
+                cell_type_counts[radius] = counts
+            else:
+                diff_counts = {}
+                for cell_type, count in counts.items():
+                    prev_count = prev_counts.get(cell_type, 0)
+                    diff_counts[cell_type] = count - prev_count
+                cell_type_counts[radius] = diff_counts
+            
+            prev_counts = counts
         
         results.append({
             'center_y': center_y,
@@ -200,7 +262,7 @@ def calculate_surrounding_cell_types(df, center_cells, radii=[50, 100, 150]):
     
     return results
 
-def analyze_samples(samples, input_dir, cell_types, colors, top_density_centers, radii=[50, 100, 150]):
+def analyze_samples(samples, input_dir, cell_types, colors, top_density_centers, radii=[50, 100, 150], dpi=96):
     all_results = []
 
     for sample in samples:
@@ -213,17 +275,17 @@ def analyze_samples(samples, input_dir, cell_types, colors, top_density_centers,
         print(mask.shape)
         new_mask = get_new_mask(mask, cell_df, cell_types)
 
-        fig, ax = plt.subplots(figsize=(20, 10))
+        fig, ax = plt.subplots(figsize=(20, 10), dpi=dpi)
         for centers in top_density_centers:
-            x = centers[:, 1]
+            print(centers)
             y = centers[:, 0]
+            x = centers[:, 1]
             spots = 5
-            spots_center = (spots / (96 / 72))**2  # Convert pixels to points
+            spots_center = (spots / (dpi / 72))**2
             for radius in radii:
-                size_in_pixels = radius
-                area_in_points = (size_in_pixels / (96 / 72))**2  # Convert pixels to points
+                area_in_points = (radius / (dpi / 72))**2
                 ax.scatter(y, x, s=area_in_points, marker='o', edgecolors='white', facecolors='none', linewidths=4, linestyle='--')
-            ax.scatter(y, x, s=spots_center, marker='o', edgecolors='white', facecolors='none', linewidths=5)
+            ax.scatter(y, x, s=spots_center, marker='o', edgecolors='white', facecolors='none', linewidths=3)
 
         output_path = f'./{sample}.pdf'
         draw_type_mask(ax, new_mask, colors=colors, labels=cell_types, output_path=output_path)
@@ -245,4 +307,3 @@ def analyze_samples(samples, input_dir, cell_types, colors, top_density_centers,
 
     df_csv = pd.DataFrame(csv_data)
     df_csv.to_csv(f'./{sample}_surrounding_cell_types.csv', index=False)
-    print(f"Results saved to {sample}-surrounding_cell_types.csv")
