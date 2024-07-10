@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 
 from scipy.stats import gaussian_kde
-from sklearn.cluster import KMeans
+from sklearn.cluster import KMeans, DBSCAN
 from skimage.io import imread
 from skimage.measure import regionprops
 from skimage.color import label2rgb
@@ -79,7 +79,7 @@ def draw_type_mask(ax, mask, colors, labels, output_path, bg_color="#000000", ba
     plt.savefig(output_path, format='pdf')
     plt.show()
 
-def find_density_centers(file_path, gene_name, top_n=1, n_clusters=3, min_distance=120):
+def find_density_centers(file_path, gene_name, top_n=1, n_clusters=3, min_distance=60):
     """
     Finds the density centers for a given gene in the dataset within different regions.
 
@@ -130,11 +130,16 @@ def find_density_centers(file_path, gene_name, top_n=1, n_clusters=3, min_distan
             top_indices = sorted_indices[:top_n * 10]  # Take more top density points to filter later
             top_coords = np.vstack([positions[0][top_indices], positions[1][top_indices]]).T
             
-            # Filter top density centers by minimum distance
+            # Use DBSCAN to cluster close density centers
+            dbscan = DBSCAN(eps=min_distance, min_samples=1)
+            db_labels = dbscan.fit_predict(top_coords)
+            
             filtered_coords = []
-            for coord in top_coords:
-                if not filtered_coords or all(cdist([coord], filtered_coords) >= min_distance):
-                    filtered_coords.append(coord)
+            for label in np.unique(db_labels):
+                cluster_coords = top_coords[db_labels == label]
+                # Take the mean coordinate of each DBSCAN cluster as the representative point
+                cluster_center = cluster_coords.mean(axis=0)
+                filtered_coords.append(cluster_center)
                 if len(filtered_coords) >= top_n:
                     break
             
@@ -152,6 +157,7 @@ def find_density_centers(file_path, gene_name, top_n=1, n_clusters=3, min_distan
         plt.show()
 
         return top_coords_list
+ 
 
 # def find_density_centers(file_path, gene_name, top_n=1, n_clusters=3):
 #     """
