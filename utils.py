@@ -157,70 +157,6 @@ def find_density_centers(file_path, gene_name, top_n=1, n_clusters=3, min_distan
         plt.show()
 
         return top_coords_list
- 
-
-# def find_density_centers(file_path, gene_name, top_n=1, n_clusters=3):
-#     """
-#     Finds the density centers for a given gene in the dataset within different regions.
-
-#     Parameters:
-#     - file_path: str, path to the CSV file
-#     - gene_name: str, the gene to filter the data by
-#     - top_n: int, number of top density centers to return per region
-#     - n_clusters: int, number of clusters/regions to divide the data into
-
-#     Returns:
-#     - top_coords_list: list of numpy.ndarray, coordinates of the top density centers for each region
-#     """
-#     data = pd.read_csv(file_path)
-#     gene_data = data[data['gene'] == gene_name]
-    
-#     if gene_data.shape[0] < 2:
-#         print(f"The dataset for gene {gene_name} has insufficient data points for KDE.")
-#         return None
-#     else:
-#         x = gene_data['dim_2'].values
-#         y = gene_data['dim_1'].values
-#         xy = np.vstack([x, y]).T
-
-#         # Perform K-means clustering to divide the data into regions
-#         kmeans = KMeans(n_clusters=n_clusters, random_state=0).fit(xy)
-#         labels = kmeans.labels_
-
-#         top_coords_list = []
-
-#         plt.figure(figsize=(10, 6))
-
-#         for i in range(n_clusters):
-#             cluster_data = xy[labels == i]
-#             if cluster_data.shape[0] < 2:
-#                 print(f"Cluster {i} has insufficient data points for KDE.")
-#                 continue
-            
-#             # Perform KDE for the current cluster
-#             kde = gaussian_kde(cluster_data.T, bw_method='scott')
-#             xmin, xmax = cluster_data[:, 0].min() - 1, cluster_data[:, 0].max() + 1
-#             ymin, ymax = cluster_data[:, 1].min() - 1, cluster_data[:, 1].max() + 1
-#             xx, yy = np.mgrid[xmin:xmax:100j, ymin:ymax:100j]
-#             positions = np.vstack([xx.ravel(), yy.ravel()])
-#             density = kde(positions).reshape(xx.shape)
-#             density_flat = density.flatten()
-#             sorted_indices = np.argsort(density_flat)[::-1]  # Sort in descending order
-#             top_indices = sorted_indices[:top_n]  # Top N density points
-#             top_coords = np.vstack([positions[0][top_indices], positions[1][top_indices]]).T
-#             top_coords_list.append(top_coords)
-
-#             # Add KDE and top density centers for the current cluster to the global plot
-#             plt.imshow(np.rot90(density), cmap='Blues', extent=[xmin, xmax, ymin, ymax], alpha=0.5)
-#             plt.scatter(top_coords[:, 0], top_coords[:, 1], s=50, label=f'Top Density Centers (Cluster {i})')
-
-#         plt.title(f'Kernel Density Estimation for {gene_name} Gene (All Clusters)')
-#         plt.xlabel('dim_2 (x-axis)')
-#         plt.ylabel('dim_1 (y-axis)')
-#         plt.legend()
-#         plt.show()
-
-#         return top_coords_list
     
 def calculate_surrounding_cell_types(df, center_cells, radii=[60, 120, 180]):
     """
@@ -268,13 +204,51 @@ def calculate_surrounding_cell_types(df, center_cells, radii=[60, 120, 180]):
     
     return results
 
+def calculate_gene_expression_around_centers(file_path, centers, radius_list, gene_list):
+    """
+    Calculates gene expression statistics for a given list of genes within specified radii around each density center.
+
+    Parameters:
+    - file_path: str, path to the CSV file
+    - centers: list of numpy.ndarray, coordinates of the density centers
+    - radius_list: list of int, list of radii to calculate the expression statistics for
+    - gene_list: list of str, list of genes to calculate the expression statistics for
+
+    Returns:
+    - expression_df: pandas DataFrame, gene expression statistics within the given radii around each density center
+    """
+    data = pd.read_csv(file_path)
+    all_expression_stats = []
+
+    for center in np.vstack(centers):
+        prev_radius_mask = np.zeros(data.shape[0], dtype=bool)
+        for radius in radius_list:
+            distances = cdist([center], data[['dim_2', 'dim_1']].values).flatten()
+            within_radius_mask = (distances <= radius) & ~prev_radius_mask
+            within_radius = data[within_radius_mask]
+            for gene in gene_list:
+                count = within_radius[within_radius['gene'] == gene].shape[0]
+                all_expression_stats.append({
+                    'center_x': center[0],
+                    'center_y': center[1],
+                    'radius': radius,
+                    'gene': gene,
+                    'count': count
+                })
+            prev_radius_mask = distances <= radius
+    
+    # Convert the gene expression statistics to a DataFrame
+    expression_df = pd.DataFrame(all_expression_stats)
+    
+    return expression_df
+
 def analyze_samples(samples, input_dir, cell_types, colors, top_density_centers, radii=[50, 100, 150], dpi=96):
     all_results = []
 
     for sample in samples:
         print(sample)    
         cell_df = pd.read_csv(f"{input_dir}/{sample}.csv", sep=",")
-        cell_df = cell_df.drop(columns=['niche'])
+        # cell_df = cell_df.drop(columns=['niche'])
         file = sample.split('-')[0]
         id = sample.split('-')[1]
         mask = imread(f"{input_dir}/{file}_{id}_mask.tif")
