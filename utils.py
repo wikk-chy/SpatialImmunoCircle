@@ -79,7 +79,7 @@ def draw_type_mask(ax, mask, colors, labels, output_path, bg_color="#000000", ba
     plt.savefig(output_path, format='pdf')
     plt.show()
 
-def find_density_centers(file_path, gene_name, top_n=1, n_clusters=3, min_distance=60):
+def find_density_centers(file_path, gene_name, sample, top_n=1, n_clusters=3, min_distance=60):
     """
     Finds the density centers for a given gene in the dataset within different regions.
 
@@ -148,14 +148,14 @@ def find_density_centers(file_path, gene_name, top_n=1, n_clusters=3, min_distan
 
             # Add KDE and top density centers for the current cluster to the global plot
             plt.imshow(np.rot90(density), cmap='Blues', extent=[xmin, xmax, ymin, ymax], alpha=0.5)
-            plt.scatter(filtered_coords[:, 0], filtered_coords[:, 1], s=50, label=f'Top Density Centers (Cluster {i})')
+            plt.scatter(filtered_coords[:, 0], filtered_coords[:, 1], s=50, label=f'Top Density Centers')
 
         plt.title(f'Kernel Density Estimation for {gene_name} Gene (All Clusters)')
         plt.xlabel('dim_2 (x-axis)')
         plt.ylabel('dim_1 (y-axis)')
         plt.legend()
+        plt.savefig(f'{sample}-kde.pdf', format='pdf')
         plt.show()
-
         return top_coords_list
     
 def calculate_surrounding_cell_types(df, center_cells, radii=[60, 120, 180]):
@@ -248,7 +248,6 @@ def analyze_samples(samples, input_dir, cell_types, colors, top_density_centers,
     for sample in samples:
         print(sample)    
         cell_df = pd.read_csv(f"{input_dir}/{sample}.csv", sep=",")
-        # cell_df = cell_df.drop(columns=['niche'])
         file = sample.split('-')[0]
         id = sample.split('-')[1]
         mask = imread(f"{input_dir}/{file}_{id}_mask.tif")
